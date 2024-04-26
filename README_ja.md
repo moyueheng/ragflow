@@ -11,11 +11,14 @@
 </p>
 
 <p align="center">
+    <a href="https://github.com/infiniflow/ragflow/releases/latest">
+        <img src="https://img.shields.io/github/v/release/infiniflow/ragflow?color=blue&label=Latest%20Release" alt="Latest Release">
+    </a>
     <a href="https://demo.ragflow.io" target="_blank">
         <img alt="Static Badge" src="https://img.shields.io/badge/RAGFLOW-LLM-white?&labelColor=dd0af7"></a>
     <a href="https://hub.docker.com/r/infiniflow/ragflow" target="_blank">
-        <img src="https://img.shields.io/badge/docker_pull-ragflow:v1.0-brightgreen"
-            alt="docker pull infiniflow/ragflow:v0.3.0"></a>
+        <img src="https://img.shields.io/badge/docker_pull-ragflow:v0.4.0-brightgreen"
+            alt="docker pull infiniflow/ragflow:v0.4.0"></a>
       <a href="https://github.com/infiniflow/ragflow/blob/main/LICENSE">
     <img height="21" src="https://img.shields.io/badge/License-Apache--2.0-ffffff?style=flat-square&labelColor=d4eaf7&color=7d09f1" alt="license">
   </a>
@@ -55,6 +58,7 @@
 
 ## 📌 最新の機能
 
+- 2024-04-26 「ファイル管理」機能を追加しました。
 - 2024-04-19 会話 API をサポートします ([詳細](./docs/conversation_api.md))。
 - 2024-04-16 [BCEmbedding](https://github.com/netease-youdao/BCEmbedding) から埋め込みモデル「bce-embedding-base_v1」を追加します。
 - 2024-04-16 [FastEmbed](https://github.com/qdrant/fastembed) は、軽量かつ高速な埋め込み用に設計されています。
@@ -75,6 +79,7 @@
 
 - CPU >= 4 cores
 - RAM >= 16 GB
+- Disk >= 50 GB
 - Docker >= 24.0.0 & Docker Compose >= v2.26.1
   > ローカルマシン（Windows、Mac、または Linux）に Docker をインストールしていない場合は、[Docker Engine のインストール](https://docs.docker.com/engine/install/) を参照してください。
 
@@ -175,7 +180,7 @@
 ```bash
 $ git clone https://github.com/infiniflow/ragflow.git
 $ cd ragflow/
-$ docker build -t infiniflow/ragflow:v0.3.0 .
+$ docker build -t infiniflow/ragflow:v0.4.0 .
 $ cd ragflow/docker
 $ chmod +x ./entrypoint.sh
 $ docker compose up -d

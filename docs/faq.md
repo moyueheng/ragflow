@@ -50,12 +50,12 @@ This feature and the related APIs are still in development. Contributions are we
 
 ### 1. Issues with docker images
 
-#### 1.1 Due to the fast iteration of RAGFlow updates, it is recommended to build the image from scratch.
+#### 1.1 How to build the RAGFlow image from scratch?
 
 ```
 $ git clone https://github.com/infiniflow/ragflow.git
 $ cd ragflow
-$ docker build -t infiniflow/ragflow:v0.3.0 .
+$ docker build -t infiniflow/ragflow:v0.4.0 .
 $ cd ragflow/docker
 $ chmod +x ./entrypoint.sh
 $ docker compose up -d
@@ -212,7 +212,7 @@ $ docker ps
 *The system displays the following if all your RAGFlow components are running properly:* 
 
 ```
-5bc45806b680   infiniflow/ragflow:v0.3.0     "./entrypoint.sh"        11 hours ago   Up 11 hours               0.0.0.0:80->80/tcp, :::80->80/tcp, 0.0.0.0:443->443/tcp, :::443->443/tcp, 0.0.0.0:9380->9380/tcp, :::9380->9380/tcp   ragflow-server
+5bc45806b680   infiniflow/ragflow:v0.4.0     "./entrypoint.sh"        11 hours ago   Up 11 hours               0.0.0.0:80->80/tcp, :::80->80/tcp, 0.0.0.0:443->443/tcp, :::443->443/tcp, 0.0.0.0:9380->9380/tcp, :::9380->9380/tcp   ragflow-server
 91220e3285dd   docker.elastic.co/elasticsearch/elasticsearch:8.11.3   "/bin/tini -- /usr/l…"   11 hours ago   Up 11 hours (healthy)     9300/tcp, 0.0.0.0:9200->9200/tcp, :::9200->9200/tcp           ragflow-es-01
 d8c86f06c56b   mysql:5.7.18        "docker-entrypoint.s…"   7 days ago     Up 16 seconds (healthy)   0.0.0.0:3306->3306/tcp, :::3306->3306/tcp     ragflow-mysql
 cd29bcb254bc   quay.io/minio/minio:RELEASE.2023-12-20T01-00-02Z       "/usr/bin/docker-ent…"   2 weeks ago    Up 11 hours      0.0.0.0:9001->9001/tcp, :::9001->9001/tcp, 0.0.0.0:9000->9000/tcp, :::9000->9000/tcp     ragflow-minio
@@ -343,3 +343,7 @@ You can use Ollama to deploy local LLM. See [here](https://github.com/infiniflow
 1. Click the **Knowledge Base** tab in the middle top of the page.
 2. Right click the desired knowledge base to display the **Configuration** dialogue. 
 3. Choose **Q&A** as the chunk method and click **Save** to confirm your change. 
+
+### Do I need to connect to Redis?
+
+No, connecting to Redis is not required to use RAGFlow. 
