@@ -14,7 +14,6 @@
 #  limitations under the License
 #
 
-import base64
 import os
 import pathlib
 import re
@@ -24,8 +23,10 @@ from elasticsearch_dsl import Q
 from flask import request
 from flask_login import login_required, current_user
 
+from api.db.db_models import Task
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
+from api.db.services.task_service import TaskService, queue_tasks
 from rag.nlp import search
 from rag.utils.es_conn import ELASTICSEARCH
 from api.db.services import duplicate_name
@@ -51,55 +52,59 @@ def upload():
     if 'file' not in request.files:
         return get_json_result(
             data=False, retmsg='No file part!', retcode=RetCode.ARGUMENT_ERROR)
-    file = request.files['file']
-    if file.filename == '':
+
+    file_objs = request.files.getlist('file')
+    for file_obj in file_objs:
+        if file_obj.filename == '':
+            return get_json_result(
+                data=False, retmsg='No file selected!', retcode=RetCode.ARGUMENT_ERROR)
+
+    err = []
+    for file in file_objs:
+        try:
+            e, kb = KnowledgebaseService.get_by_id(kb_id)
+            if not e:
+                raise LookupError("Can't find this knowledgebase!")
+            MAX_FILE_NUM_PER_USER = int(os.environ.get('MAX_FILE_NUM_PER_USER', 0))
+            if MAX_FILE_NUM_PER_USER > 0 and DocumentService.get_doc_count(kb.tenant_id) >= MAX_FILE_NUM_PER_USER:
+                raise RuntimeError("Exceed the maximum file number of a free user!")
+
+            filename = duplicate_name(
+                DocumentService.query,
+                name=file.filename,
+                kb_id=kb.id)
+            filetype = filename_type(filename)
+            if filetype == FileType.OTHER.value:
+                raise RuntimeError("This type of file has not been supported yet!")
+
+            location = filename
+            while MINIO.obj_exist(kb_id, location):
+                location += "_"
+            blob = file.read()
+            MINIO.put(kb_id, location, blob)
+            doc = {
+                "id": get_uuid(),
+                "kb_id": kb.id,
+                "parser_id": kb.parser_id,
+                "parser_config": kb.parser_config,
+                "created_by": current_user.id,
+                "type": filetype,
+                "name": filename,
+                "location": location,
+                "size": len(blob),
+                "thumbnail": thumbnail(filename, blob)
+            }
+            if doc["type"] == FileType.VISUAL:
+                doc["parser_id"] = ParserType.PICTURE.value
+            if re.search(r"\.(ppt|pptx|pages)$", filename):
+                doc["parser_id"] = ParserType.PRESENTATION.value
+            DocumentService.insert(doc)
+        except Exception as e:
+            err.append(file.filename + ": " + str(e))
+    if err:
         return get_json_result(
-            data=False, retmsg='No file selected!', retcode=RetCode.ARGUMENT_ERROR)
-
-    try:
-        e, kb = KnowledgebaseService.get_by_id(kb_id)
-        if not e:
-            return get_data_error_result(
-                retmsg="Can't find this knowledgebase!")
-        MAX_FILE_NUM_PER_USER = int(os.environ.get('MAX_FILE_NUM_PER_USER', 0))
-        if MAX_FILE_NUM_PER_USER > 0 and DocumentService.get_doc_count(kb.tenant_id) >= MAX_FILE_NUM_PER_USER:
-            return get_data_error_result(
-                retmsg="Exceed the maximum file number of a free user!")
-
-        filename = duplicate_name(
-            DocumentService.query,
-            name=file.filename,
-            kb_id=kb.id)
-        filetype = filename_type(filename)
-        if filetype == FileType.OTHER.value:
-            return get_data_error_result(
-                retmsg="This type of file has not been supported yet!")
-
-        location = filename
-        while MINIO.obj_exist(kb_id, location):
-            location += "_"
-        blob = request.files['file'].read()
-        MINIO.put(kb_id, location, blob)
-        doc = {
-            "id": get_uuid(),
-            "kb_id": kb.id,
-            "parser_id": kb.parser_id,
-            "parser_config": kb.parser_config,
-            "created_by": current_user.id,
-            "type": filetype,
-            "name": filename,
-            "location": location,
-            "size": len(blob),
-            "thumbnail": thumbnail(filename, blob)
-        }
-        if doc["type"] == FileType.VISUAL:
-            doc["parser_id"] = ParserType.PICTURE.value
-        if re.search(r"\.(ppt|pptx|pages)$", filename):
-            doc["parser_id"] = ParserType.PRESENTATION.value
-        doc = DocumentService.insert(doc)
-        return get_json_result(data=doc.to_json())
-    except Exception as e:
-        return server_error_response(e)
+            data=False, retmsg="\n".join(err), retcode=RetCode.SERVER_ERROR)
+    return get_json_result(data=True)
 
 
 @manager.route('/create', methods=['POST'])
@@ -273,6 +278,14 @@ def run():
                 return get_data_error_result(retmsg="Tenant not found!")
             ELASTICSEARCH.deleteByQuery(
                 Q("match", doc_id=id), idxnm=search.index_name(tenant_id))
+            
+            if str(req["run"]) == TaskStatus.RUNNING.value:
+                TaskService.filter_delete([Task.doc_id == id])
+                e, doc = DocumentService.get_by_id(id)
+                doc = doc.to_dict()
+                doc["tenant_id"] = tenant_id
+                bucket, name = File2DocumentService.get_minio_address(doc_id=doc["id"])
+                queue_tasks(doc, bucket, name)
 
         return get_json_result(data=True)
     except Exception as e:
@@ -363,7 +376,8 @@ def change_parser():
             return get_data_error_result(retmsg="Not supported yet!")
 
         e = DocumentService.update_by_id(doc.id,
-                                         {"parser_id": req["parser_id"], "progress": 0, "progress_msg": "", "run": "0"})
+                                         {"parser_id": req["parser_id"], "progress": 0, "progress_msg": "",
+                                          "run": TaskStatus.UNSTART.value})
         if not e:
             return get_data_error_result(retmsg="Document not found!")
         if "parser_config" in req:

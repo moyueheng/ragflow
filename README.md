@@ -15,12 +15,12 @@
         <img src="https://img.shields.io/github/v/release/infiniflow/ragflow?color=blue&label=Latest%20Release" alt="Latest Release">
     </a>
     <a href="https://demo.ragflow.io" target="_blank">
-        <img alt="Static Badge" src="https://img.shields.io/badge/RAGFLOW-LLM-white?&labelColor=dd0af7"></a>
+        <img alt="Static Badge" src="https://img.shields.io/badge/Online-Demo-4e6b99"></a>
     <a href="https://hub.docker.com/r/infiniflow/ragflow" target="_blank">
-        <img src="https://img.shields.io/badge/docker_pull-ragflow:v0.4.0-brightgreen"
-            alt="docker pull infiniflow/ragflow:v0.4.0"></a>
+        <img src="https://img.shields.io/badge/docker_pull-ragflow:v0.5.0-brightgreen"
+            alt="docker pull infiniflow/ragflow:v0.5.0"></a>
       <a href="https://github.com/infiniflow/ragflow/blob/main/LICENSE">
-    <img height="21" src="https://img.shields.io/badge/License-Apache--2.0-ffffff?style=flat-square&labelColor=d4eaf7&color=7d09f1" alt="license">
+    <img height="21" src="https://img.shields.io/badge/License-Apache--2.0-ffffff?style=flat-square&labelColor=d4eaf7&color=1570EF" alt="license">
   </a>
 </p>
 
@@ -58,14 +58,14 @@
 
 ## 📌 Latest Features
 
-- 2024-04-26 Add file management.
-- 2024-04-19 Support conversation API ([detail](./docs/conversation_api.md)).
-- 2024-04-16 Add an embedding model 'bce-embedding-base_v1' from [BCEmbedding](https://github.com/netease-youdao/BCEmbedding).
-- 2024-04-16 Add [FastEmbed](https://github.com/qdrant/fastembed), which is designed specifically for light and speedy embedding.
-- 2024-04-11 Support [Xinference](./docs/xinference.md) for local LLM deployment.
-- 2024-04-10 Add a new layout recognization model for analyzing Laws documentation.
-- 2024-04-08 Support [Ollama](./docs/ollama.md) for local LLM deployment.
-- 2024-04-07 Support Chinese UI.
+- 2024-05-08 Integrates LLM DeepSeek.
+- 2024-04-26 Adds file management.
+- 2024-04-19 Supports conversation API ([detail](./docs/conversation_api.md)).
+- 2024-04-16 Integrates an embedding model 'bce-embedding-base_v1' from [BCEmbedding](https://github.com/netease-youdao/BCEmbedding), and [FastEmbed](https://github.com/qdrant/fastembed), which is designed specifically for light and speedy embedding.
+- 2024-04-11 Supports [Xinference](./docs/xinference.md) for local LLM deployment.
+- 2024-04-10 Adds a new layout recognition model for analyzing Laws documentation.
+- 2024-04-08 Supports [Ollama](./docs/ollama.md) for local LLM deployment.
+- 2024-04-07 Supports Chinese UI.
 
 ## 🔎 System Architecture
 
@@ -119,6 +119,7 @@
    $ chmod +x ./entrypoint.sh
    $ docker compose up -d
    ```
+   > Please note that running the above commands will automatically download the development version docker image of RAGFlow. If you want to download and run a specific version of docker image, please find the RAGFLOW_VERSION variable in the docker/.env file, change it to the corresponding version, for example, RAGFLOW_VERSION=v0.5.0, and run the above commands.
 
    > The core image is about 9 GB in size and may take a while to load.
 
@@ -180,10 +181,70 @@ To build the Docker images from source:
 ```bash
 $ git clone https://github.com/infiniflow/ragflow.git
 $ cd ragflow/
-$ docker build -t infiniflow/ragflow:v0.4.0 .
+$ docker build -t infiniflow/ragflow:dev .
 $ cd ragflow/docker
 $ chmod +x ./entrypoint.sh
 $ docker compose up -d
+```
+
+## 🛠️ Launch Service from Source
+
+To launch the service from source, please follow these steps:
+
+1. Clone the repository
+```bash
+$ git clone https://github.com/infiniflow/ragflow.git
+$ cd ragflow/
+```
+
+2. Create a virtual environment (ensure Anaconda or Miniconda is installed)
+```bash
+$ conda create -n ragflow python=3.11.0
+$ conda activate ragflow
+$ pip install -r requirements.txt
+```
+If CUDA version is greater than 12.0, execute the following additional commands:
+```bash
+$ pip uninstall -y onnxruntime-gpu
+$ pip install onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/
+```
+
+3. Copy the entry script and configure environment variables
+```bash
+$ cp docker/entrypoint.sh .
+$ vi entrypoint.sh
+```
+Use the following commands to obtain the Python path and the ragflow project path:
+```bash
+$ which python
+$ pwd
+```
+
+Set the output of `which python` as the value for `PY` and the output of `pwd` as the value for `PYTHONPATH`.
+
+If `LD_LIBRARY_PATH` is already configured, it can be commented out.
+
+```bash
+# Adjust configurations according to your actual situation; the two export commands are newly added.
+PY=${PY}
+export PYTHONPATH=${PYTHONPATH}
+# Optional: Add Hugging Face mirror
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+4. Start the base services
+```bash
+$ cd docker
+$ docker compose -f docker-compose-base.yml up -d 
+```
+
+5. Check the configuration files
+Ensure that the settings in **docker/.env** match those in **conf/service_conf.yaml**. The IP addresses and ports for related services in **service_conf.yaml** should be changed to the local machine IP and ports exposed by the container.
+
+6. Launch the service
+```bash
+$ chmod +x ./entrypoint.sh
+$ bash ./entrypoint.sh
 ```
 
 ## 📚 Documentation

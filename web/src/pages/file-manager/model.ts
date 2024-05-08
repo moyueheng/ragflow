@@ -2,7 +2,9 @@ import { paginationModel } from '@/base';
 import { BaseState } from '@/interfaces/common';
 import { IFile, IFolder } from '@/interfaces/database/file-manager';
 import i18n from '@/locales/config';
-import fileManagerService from '@/services/fileManagerService';
+import fileManagerService, {
+  getDocumentFile,
+} from '@/services/fileManagerService';
 import { message } from 'antd';
 import omit from 'lodash/omit';
 import { DvaModel } from 'umi';
@@ -85,8 +87,6 @@ const model: DvaModel<FileManagerModelState> = {
       const pathList = payload.path;
       const formData = new FormData();
       formData.append('parent_id', payload.parentId);
-      // formData.append('file', payload.file);
-      // formData.append('path', payload.path);
       fileList.forEach((file: any, index: number) => {
         formData.append('file', file);
         formData.append('path', pathList[index]);
@@ -140,6 +140,11 @@ const model: DvaModel<FileManagerModelState> = {
         });
       }
       return data.retcode;
+    },
+    *getDocumentFile({ payload = {} }, { call }) {
+      const ret = yield call(getDocumentFile, payload);
+
+      return ret;
     },
   },
 };

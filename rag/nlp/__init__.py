@@ -2,7 +2,7 @@ import random
 from collections import Counter
 
 from rag.utils import num_tokens_from_string
-from . import huqie
+from . import rag_tokenizer
 import re
 import copy
 
@@ -29,10 +29,16 @@ def find_codec(blob):
     global all_codecs
     for c in all_codecs:
         try:
+            blob[:1024].decode(c)
+            return c
+        except Exception as e:
+            pass
+        try:
             blob.decode(c)
             return c
         except Exception as e:
             pass
+
     return "utf-8"
 
 
@@ -109,8 +115,8 @@ def is_english(texts):
 def tokenize(d, t, eng):
     d["content_with_weight"] = t
     t = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", t)
-    d["content_ltks"] = huqie.qie(t)
-    d["content_sm_ltks"] = huqie.qieqie(d["content_ltks"])
+    d["content_ltks"] = rag_tokenizer.tokenize(t)
+    d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
 
 
 def tokenize_chunks(chunks, doc, eng, pdf_parser):

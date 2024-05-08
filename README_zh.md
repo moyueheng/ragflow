@@ -15,12 +15,12 @@
         <img src="https://img.shields.io/github/v/release/infiniflow/ragflow?color=blue&label=Latest%20Release" alt="Latest Release">
     </a>
     <a href="https://demo.ragflow.io" target="_blank">
-        <img alt="Static Badge" src="https://img.shields.io/badge/RAGFLOW-LLM-white?&labelColor=dd0af7"></a>
+        <img alt="Static Badge" src="https://img.shields.io/badge/Online-Demo-4e6b99"></a>
     <a href="https://hub.docker.com/r/infiniflow/ragflow" target="_blank">
-        <img src="https://img.shields.io/badge/docker_pull-ragflow:v0.4.0-brightgreen"
-            alt="docker pull infiniflow/ragflow:v0.4.0"></a>
+        <img src="https://img.shields.io/badge/docker_pull-ragflow:v0.5.0-brightgreen"
+            alt="docker pull infiniflow/ragflow:v0.5.0"></a>
       <a href="https://github.com/infiniflow/ragflow/blob/main/LICENSE">
-    <img height="21" src="https://img.shields.io/badge/License-Apache--2.0-ffffff?style=flat-square&labelColor=d4eaf7&color=7d09f1" alt="license">
+    <img height="21" src="https://img.shields.io/badge/License-Apache--2.0-ffffff?style=flat-square&labelColor=d4eaf7&color=1570EF" alt="license">
   </a>
 </p>
 
@@ -58,10 +58,10 @@
 
 ## 📌 新增功能
 
+- 2024-05-08 集成大模型 DeepSeek
 - 2024-04-26 增添了'文件管理'功能.
 - 2024-04-19 支持对话 API ([更多](./docs/conversation_api.md)).
-- 2024-04-16 添加嵌入模型 [BCEmbedding](https://github.com/netease-youdao/BCEmbedding) 。
-- 2024-04-16 添加 [FastEmbed](https://github.com/qdrant/fastembed) 专为轻型和高速嵌入而设计。
+- 2024-04-16 集成嵌入模型 [BCEmbedding](https://github.com/netease-youdao/BCEmbedding) 和 专为轻型和高速嵌入而设计的 [FastEmbed](https://github.com/qdrant/fastembed) 。
 - 2024-04-11 支持用 [Xinference](./docs/xinference.md) 本地化部署大模型。
 - 2024-04-10 为‘Laws’版面分析增加了底层模型。
 - 2024-04-08 支持用 [Ollama](./docs/ollama.md) 本地化部署大模型。
@@ -120,7 +120,9 @@
    $ docker compose -f docker-compose-CN.yml up -d
    ```
 
-   > 核心镜像文件大约 15 GB，可能需要一定时间拉取。请耐心等待。
+   > 请注意，运行上述命令会自动下载 RAGFlow 的开发版本 docker 镜像。如果你想下载并运行特定版本的 docker 镜像，请在 docker/.env 文件中找到 RAGFLOW_VERSION 变量，将其改为对应版本。例如 RAGFLOW_VERSION=v0.5.0，然后运行上述命令。
+
+   > 核心镜像文件大约 9 GB，可能需要一定时间拉取。请耐心等待。
 
 4. 服务器启动成功后再次确认服务器状态：
 
@@ -180,10 +182,70 @@
 ```bash
 $ git clone https://github.com/infiniflow/ragflow.git
 $ cd ragflow/
-$ docker build -t infiniflow/ragflow:v0.4.0 .
+$ docker build -t infiniflow/ragflow:v0.5.0 .
 $ cd ragflow/docker
 $ chmod +x ./entrypoint.sh
 $ docker compose up -d
+```
+
+## 🛠️ 源码启动服务
+
+如需从源码启动服务，请参考以下步骤：
+
+1. 克隆仓库
+```bash
+$ git clone https://github.com/infiniflow/ragflow.git
+$ cd ragflow/
+```
+
+2. 创建虚拟环境（确保已安装 Anaconda 或 Miniconda）
+```bash
+$ conda create -n ragflow python=3.11.0
+$ conda activate ragflow
+$ pip install -r requirements.txt
+```
+如果cuda > 12.0，需额外执行以下命令：
+```bash
+$ pip uninstall -y onnxruntime-gpu
+$ pip install onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/
+```
+
+3. 拷贝入口脚本并配置环境变量
+```bash
+$ cp docker/entrypoint.sh .
+$ vi entrypoint.sh
+```
+使用以下命令获取python路径及ragflow项目路径：
+```bash
+$ which python
+$ pwd
+```
+
+将上述`which python`的输出作为`PY`的值，将`pwd`的输出作为`PYTHONPATH`的值。
+
+`LD_LIBRARY_PATH`如果环境已经配置好，可以注释掉。
+
+```bash
+# 此处配置需要按照实际情况调整，两个export为新增配置
+PY=${PY}
+export PYTHONPATH=${PYTHONPATH}
+# 可选：添加Hugging Face镜像
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+4. 启动基础服务
+```bash
+$ cd docker
+$ docker compose -f docker-compose-base.yml up -d 
+```
+
+5. 检查配置文件
+确保**docker/.env**中的配置与**conf/service_conf.yaml**中配置一致， **service_conf.yaml**中相关服务的IP地址与端口应该改成本机IP地址及容器映射出来的端口。
+
+6. 启动服务
+```bash
+$ chmod +x ./entrypoint.sh
+$ bash ./entrypoint.sh
 ```
 
 ## 📚 技术文档

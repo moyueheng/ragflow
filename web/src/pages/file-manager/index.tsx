@@ -1,7 +1,7 @@
 import { useSelectFileList } from '@/hooks/fileManagerHooks';
 import { IFile } from '@/interfaces/database/file-manager';
 import { formatDate } from '@/utils/date';
-import { Button, Flex, Space, Table, Tag } from 'antd';
+import { Button, Flex, Space, Table, Tag, Typography } from 'antd';
 import { ColumnsType } from 'antd/es/table';
 import ActionCell from './action-cell';
 import FileToolbar from './file-toolbar';
@@ -16,15 +16,17 @@ import {
   useSelectFileListLoading,
 } from './hooks';
 
+import FileUploadModal from '@/components/file-upload-modal';
 import RenameModal from '@/components/rename-modal';
 import SvgIcon from '@/components/svg-icon';
 import { useTranslate } from '@/hooks/commonHooks';
 import { formatNumberWithThousandsSeparator } from '@/utils/commonUtil';
 import { getExtension } from '@/utils/documentUtils';
 import ConnectToKnowledgeModal from './connect-to-knowledge-modal';
-import FileUploadModal from './file-upload-modal';
 import FolderCreateModal from './folder-create-modal';
 import styles from './index.less';
+
+const { Text } = Typography;
 
 const FileManager = () => {
   const { t } = useTranslate('fileManager');
@@ -69,6 +71,7 @@ const FileManager = () => {
       title: t('name'),
       dataIndex: 'name',
       key: 'name',
+      fixed: 'left',
       render(value, record) {
         return (
           <Flex gap={10} align="center">
@@ -82,10 +85,10 @@ const FileManager = () => {
                 className={styles.linkButton}
                 onClick={() => navigateToOtherFolder(record.id)}
               >
-                {value}
+                <Text ellipsis={{ tooltip: value }}>{value}</Text>
               </Button>
             ) : (
-              value
+              <Text ellipsis={{ tooltip: value }}>{value}</Text>
             )}
           </Flex>
         );
@@ -160,6 +163,7 @@ const FileManager = () => {
         rowSelection={rowSelection}
         loading={loading}
         pagination={pagination}
+        scroll={{ scrollToFirstRowOnChange: true, x: '100%' }}
       />
       <RenameModal
         visible={fileRenameVisible}
