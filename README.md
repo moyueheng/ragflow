@@ -114,12 +114,14 @@
 
 3. Build the pre-built Docker images and start up the server:
 
+   > Running the following commands automatically downloads the *dev* version RAGFlow Docker image. To download and run a specified Docker version, update `RAGFLOW_VERSION` in **docker/.env** to the intended version, for example `RAGFLOW_VERSION=v0.5.0`, before running the following commands.
+
    ```bash
    $ cd ragflow/docker
    $ chmod +x ./entrypoint.sh
    $ docker compose up -d
    ```
-   > Please note that running the above commands will automatically download the development version docker image of RAGFlow. If you want to download and run a specific version of docker image, please find the RAGFLOW_VERSION variable in the docker/.env file, change it to the corresponding version, for example, RAGFLOW_VERSION=v0.5.0, and run the above commands.
+   
 
    > The core image is about 9 GB in size and may take a while to load.
 
@@ -245,6 +247,29 @@ Ensure that the settings in **docker/.env** match those in **conf/service_conf.y
 ```bash
 $ chmod +x ./entrypoint.sh
 $ bash ./entrypoint.sh
+```
+
+7. Start the WebUI service
+```bash
+$ cd web
+$ npm install --registry=https://registry.npmmirror.com --force
+$ vim .umirc.ts
+# Modify proxy.target to 127.0.0.1:9380
+$ npm run dev 
+```
+
+8. Deploy the WebUI service
+```bash
+$ cd web
+$ npm install --registry=https://registry.npmmirror.com --force
+$ umi build
+$ mkdir -p /ragflow/web
+$ cp -r dist /ragflow/web
+$ apt install nginx -y
+$ cp ../docker/nginx/proxy.conf /etc/nginx
+$ cp ../docker/nginx/nginx.conf /etc/nginx
+$ cp ../docker/nginx/ragflow.conf /etc/nginx/conf.d
+$ systemctl start nginx
 ```
 
 ## 📚 Documentation
