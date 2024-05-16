@@ -8,14 +8,14 @@ PY=/root/miniconda3/envs/py11/bin/python
 
 function task_exe(){
     while [ 1 -eq 1 ];do
-      $PY rag/svr/task_executor.py $1 $2;
+      $PY rag/svr/task_executor.py ;
     done
 }
 
 WS=1
 for ((i=0;i<WS;i++))
 do
-  task_exe $i $WS & # (0,1)  # 传了俩参数进入task_exe, 并执行了两次
+  task_exe  &
 done
 
 while [ 1 -eq 1 ];do
