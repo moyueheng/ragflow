@@ -51,7 +51,7 @@ class Dealer:
 
     def search(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
-        bqry, keywords = self.qryr.question(qst)
+        bqry, keywords = self.qryr.question(qst) # TODO 查询es的语句构建
         def add_filters(bqry):
             nonlocal req
             if req.get("kb_ids"):
@@ -77,7 +77,7 @@ class Dealer:
                                  "image_id", "doc_id", "q_512_vec", "q_768_vec", "position_int",
                                  "q_1024_vec", "q_1536_vec", "available_int", "content_with_weight"])
 
-        s = s.query(bqry)[pg * ps:(pg + 1) * ps]
+        s = s.query(bqry)[pg * ps:(pg + 1) * ps]# 进行搜索
         s = s.highlight("content_ltks")
         s = s.highlight("title_ltks")
         if not qst:
@@ -107,7 +107,7 @@ class Dealer:
                 boundary_chars=",./;:\\!()，。？：！……（）——、"
             )
         s = s.to_dict()
-        q_vec = []
+        q_vec = [] # 进行向量搜索
         if req.get("vector"):
             assert emb_mdl, "No embedding model selected"
             s["knn"] = self._vector(
@@ -126,11 +126,11 @@ class Dealer:
             s["query"] = bqry.to_dict()
             s["knn"]["filter"] = bqry.to_dict()
             s["knn"]["similarity"] = 0.17
-            res = self.es.search(s, idxnm=idxnm, timeout="600s", src=src)
-            es_logger.info("【Q】: {}".format(json.dumps(s)))
+            res = self.es.search(s, idxnm=idxnm, timeout="600s", src=src) 
+            es_logger.info("【Q】: {}".format(json.dumps(s)))# TODO 这里可以让显示中文更方便， info日志可以到标准输出比较好
 
         kwds = set([])
-        for k in keywords:
+        for k in keywords: # 进行更细力度的分词， 只是为了返回回去
             kwds.add(k)
             for kk in rag_tokenizer.fine_grained_tokenize(k).split(" "):
                 if len(kk) < 2:
@@ -309,7 +309,7 @@ class Dealer:
                                                         ins_embd,
                                                         keywords,
                                                         ins_tw, tkweight, vtweight)
-        return sim, tksim, vtsim
+        return sim, tksim, vtsim # 综合相似度，关键词相似度，向量相似度
 
     def hybrid_similarity(self, ans_embd, ins_embd, ans, inst):
         return self.qryr.hybrid_similarity(ans_embd,
@@ -319,13 +319,13 @@ class Dealer:
 
     def retrieval(self, question, embd_mdl, tenant_id, kb_ids, page, page_size, similarity_threshold=0.2,
                   vector_similarity_weight=0.3, top=1024, doc_ids=None, aggs=True):
-        ranks = {"total": 0, "chunks": [], "doc_aggs": {}}
+        ranks = {"total": 0, "chunks": [], "doc_aggs": {}} # NOTE 核心召回逻辑
         if not question:
             return ranks
         req = {"kb_ids": kb_ids, "doc_ids": doc_ids, "size": page_size,
                "question": question, "vector": True, "topk": top,
-               "similarity": similarity_threshold}
-        sres = self.search(req, index_name(tenant_id), embd_mdl)
+               "similarity": similarity_threshold} # similarity_threshold 混合相似度阈值
+        sres = self.search(req, index_name(tenant_id), embd_mdl) # tenant_id 是索引id，索引全称ragflow_{tenant_id}
 
         sim, tsim, vsim = self.rerank(
             sres, question, 1 - vector_similarity_weight, vector_similarity_weight)

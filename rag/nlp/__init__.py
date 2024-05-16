@@ -360,7 +360,7 @@ def naive_merge(sections, chunk_token_num=128, delimiter="\n。；！？"):
 
     def add_chunk(t, pos):
         nonlocal cks, tk_nums, delimiter
-        tnum = num_tokens_from_string(t)
+        tnum = num_tokens_from_string(t) # 计算这个字符串有多少个token
         if tnum < 8:
             pos = ""
         if tk_nums[-1] > chunk_token_num:
@@ -371,8 +371,8 @@ def naive_merge(sections, chunk_token_num=128, delimiter="\n。；！？"):
         else:
             if cks[-1].find(pos) < 0:
                 t += pos
-            cks[-1] += t
-            tk_nums[-1] += tnum
+            cks[-1] += t # 字符合计
+            tk_nums[-1] += tnum # 总的token数
 
     for sec, pos in sections:
         add_chunk(sec, pos)

@@ -245,7 +245,7 @@ def embedding(docs, mdl, parser_config={}, callback=None):
 
 
 def main():
-    rows = collect()
+    rows = collect() # 去redis队列里收集解析任务
     if len(rows) == 0:
         return
 
@@ -281,7 +281,7 @@ def main():
         cron_logger.info("Embedding elapsed({}): {}".format(r["name"], timer()-st))
 
         callback(msg="Finished embedding({})! Start to build index!".format(timer()-st))
-        init_kb(r)
+        init_kb(r) # 初始化ES
         chunk_count = len(set([c["_id"] for c in cks]))
         st = timer()
         es_r = ELASTICSEARCH.bulk(cks, search.index_name(r["tenant_id"]))

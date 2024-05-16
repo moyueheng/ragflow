@@ -15,11 +15,11 @@ function task_exe(){
 WS=1
 for ((i=0;i<WS;i++))
 do
-  task_exe $i $WS &
+  task_exe $i $WS & # (0,1)  # 传了俩参数进入task_exe, 并执行了两次
 done
 
 while [ 1 -eq 1 ];do
     $PY api/ragflow_server.py
 done
 
-wait;
+wait; # wait 命令用于等待所有后台进程结束

@@ -72,7 +72,7 @@ class EsQueryer:
             return True
 
         qs, keywords = [], []
-        for tt in self.tw.split(txt)[:256]:  # .split(" "):
+        for tt in self.tw.split(txt)[:256]:  # .split(" "): 
             if not tt:
                 continue
             twts = self.tw.weights([tt])
@@ -131,10 +131,10 @@ class EsQueryer:
                  ), keywords
 
     def hybrid_similarity(self, avec, bvecs, atks, btkss, tkweight=0.3,
-                          vtweight=0.7):
+                          vtweight=0.7): # NOTE 混合相似度的计算
         from sklearn.metrics.pairwise import cosine_similarity as CosineSimilarity
         import numpy as np
-        sims = CosineSimilarity([avec], bvecs)
+        sims = CosineSimilarity([avec], bvecs) # 计算查询语句和查询结果的向量相似度
 
         def toDict(tks):
             d = {}
@@ -148,7 +148,7 @@ class EsQueryer:
 
         atks = toDict(atks)
         btkss = [toDict(tks) for tks in btkss]
-        tksim = [self.similarity(atks, btks) for btks in btkss]
+        tksim = [self.similarity(atks, btks) for btks in btkss] # 将查询的关键词和搜到的内容关键词进行相似度计算
         return np.array(sims[0]) * vtweight + \
             np.array(tksim) * tkweight, tksim, sims[0]
 

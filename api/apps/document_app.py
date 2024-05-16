@@ -262,7 +262,7 @@ def rm():
 @manager.route('/run', methods=['POST'])
 @login_required
 @validate_request("doc_ids", "run")
-def run():
+def run(): # NOTE 文档解析
     req = request.json
     try:
         for id in req["doc_ids"]:
@@ -271,7 +271,7 @@ def run():
                 info["progress_msg"] = ""
                 info["chunk_num"] = 0
                 info["token_num"] = 0
-            DocumentService.update_by_id(id, info)
+            DocumentService.update_by_id(id, info) #  更新数据库
             # if str(req["run"]) == TaskStatus.CANCEL.value:
             tenant_id = DocumentService.get_tenant_id(id)
             if not tenant_id:
@@ -279,7 +279,7 @@ def run():
             ELASTICSEARCH.deleteByQuery(
                 Q("match", doc_id=id), idxnm=search.index_name(tenant_id))
             
-            if str(req["run"]) == TaskStatus.RUNNING.value:
+            if str(req["run"]) == TaskStatus.RUNNING.value: #  如果请求状态是运行状态，那么就把这篇文档老的任务删除了，再加入新的任务，以 doc_id 来标识这些任务
                 TaskService.filter_delete([Task.doc_id == id])
                 e, doc = DocumentService.get_by_id(id)
                 doc = doc.to_dict()
