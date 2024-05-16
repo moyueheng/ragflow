@@ -16,6 +16,7 @@
 import random
 from datetime import datetime
 from elasticsearch_dsl import Q
+from peewee import fn
 
 from api.settings import stat_logger
 from api.utils import current_timestamp, get_format_time
@@ -40,8 +41,9 @@ class DocumentService(CommonService):
                      orderby, desc, keywords):
         if keywords:
             docs = cls.model.select().where(
-                cls.model.kb_id == kb_id,
-                cls.model.name.like(f"%%{keywords}%%"))
+                (cls.model.kb_id == kb_id),
+                (fn.LOWER(cls.model.name).contains(keywords.lower()))
+             )
         else:
             docs = cls.model.select().where(cls.model.kb_id == kb_id)
         count = docs.count()
@@ -148,6 +150,22 @@ class DocumentService(CommonService):
             chunk_num=Knowledgebase.chunk_num +
             chunk_num).where(
             Knowledgebase.id == kb_id).execute()
+        return num
+
+    @classmethod
+    @DB.connection_context()
+    def clear_chunk_num(cls, doc_id):
+        doc = cls.model.get_by_id(doc_id)
+        assert doc, "Can't fine document in database."
+
+        num = Knowledgebase.update(
+            token_num=Knowledgebase.token_num -
+            doc.token_num,
+            chunk_num=Knowledgebase.chunk_num -
+            doc.chunk_num,
+            doc_num=Knowledgebase.doc_num-1
+        ).where(
+            Knowledgebase.id == doc.kb_id).execute()
         return num
 
     @classmethod
