@@ -13,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import os
 import random
 
 from api.db.db_utils import bulk_insert_into_db
@@ -26,7 +27,7 @@ from api.db.services.document_service import DocumentService
 from api.utils import current_timestamp, get_uuid
 from deepdoc.parser.excel_parser import RAGFlowExcelParser
 from rag.settings import SVR_QUEUE_NAME
-from rag.utils.minio_conn import MINIO
+from rag.utils.storage_factory import STORAGE_IMPL
 from rag.utils.redis_conn import REDIS_CONN
 
 
@@ -41,6 +42,7 @@ class TaskService(CommonService):
             cls.model.doc_id,
             cls.model.from_page,
             cls.model.to_page,
+            cls.model.retry_count,
             Document.kb_id,
             Document.parser_id,
             Document.parser_config,
@@ -53,6 +55,7 @@ class TaskService(CommonService):
             Knowledgebase.embd_id,
             Tenant.img2txt_id,
             Tenant.asr_id,
+            Tenant.llm_id,
             cls.model.update_time]
         docs = cls.model.select(*fields) \
             .join(Document, on=(cls.model.doc_id == Document.id)) \
@@ -62,9 +65,20 @@ class TaskService(CommonService):
         docs = list(docs.dicts())
         if not docs: return []
 
-        cls.model.update(progress_msg=cls.model.progress_msg + "\n" + "Task has been received.",
-                         progress=random.random() / 10.).where(
+        msg = "\nTask has been received."
+        prog = random.random() / 10.
+        if docs[0]["retry_count"] >= 3:
+            msg = "\nERROR: Task is abandoned after 3 times attempts."
+            prog = -1
+
+        cls.model.update(progress_msg=cls.model.progress_msg + msg,
+                         progress=prog,
+                         retry_count=docs[0]["retry_count"]+1
+                         ).where(
             cls.model.id == docs[0]["id"]).execute()
+
+        if docs[0]["retry_count"] >= 3: return []
+
         return docs
 
     @classmethod
@@ -101,6 +115,15 @@ class TaskService(CommonService):
     @classmethod
     @DB.connection_context()
     def update_progress(cls, id, info):
+        if os.environ.get("MACOS"):
+            if info["progress_msg"]:
+                cls.model.update(progress_msg=cls.model.progress_msg + "\n" + info["progress_msg"]).where(
+                    cls.model.id == id).execute()
+            if "progress" in info:
+                cls.model.update(progress=info["progress"]).where(
+                    cls.model.id == id).execute()
+            return
+
         with DB.lock("update_progress", -1):
             if info["progress_msg"]:
                 cls.model.update(progress_msg=cls.model.progress_msg + "\n" + info["progress_msg"]).where(
@@ -110,9 +133,8 @@ class TaskService(CommonService):
                     cls.model.id == id).execute()
 
 
-def queue_tasks(doc, bucket, name):
+def queue_tasks(doc: dict, bucket: str, name: str):
     def new_task():
-        nonlocal doc
         return {
             "id": get_uuid(),
             "doc_id": doc["id"]
@@ -120,19 +142,15 @@ def queue_tasks(doc, bucket, name):
     tsks = []
 
     if doc["type"] == FileType.PDF.value:
-        file_bin = MINIO.get(bucket, name)
+        file_bin = STORAGE_IMPL.get(bucket, name)
         do_layout = doc["parser_config"].get("layout_recognize", True)
         pages = PdfParser.total_page_number(doc["name"], file_bin)
         page_size = doc["parser_config"].get("task_page_size", 12)
         if doc["parser_id"] == "paper":
             page_size = doc["parser_config"].get("task_page_size", 22)
-        if doc["parser_id"] == "one":
-            page_size = 1000000000
-        if not do_layout:
-            page_size = 1000000000
-        page_ranges = doc["parser_config"].get("pages")
-        if not page_ranges:
-            page_ranges = [(1, 100000)]
+        if doc["parser_id"] in ["one", "knowledge_graph"] or not do_layout:
+            page_size = 10 ** 9
+        page_ranges = doc["parser_config"].get("pages") or [(1, 10 ** 5)]
         for s, e in page_ranges:
             s -= 1
             s = max(0, s)
@@ -144,9 +162,8 @@ def queue_tasks(doc, bucket, name):
                 tsks.append(task)
 
     elif doc["parser_id"] == "table":
-        file_bin = MINIO.get(bucket, name)
-        rn = RAGFlowExcelParser.row_number(
-            doc["name"], file_bin)
+        file_bin = STORAGE_IMPL.get(bucket, name)
+        rn = RAGFlowExcelParser.row_number(doc["name"], file_bin)
         for i in range(0, rn, 3000):
             task = new_task()
             task["from_page"] = i

@@ -13,32 +13,33 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import functools
 import json
 import random
 import time
+from base64 import b64encode
 from functools import wraps
+from hmac import HMAC
 from io import BytesIO
+from urllib.parse import quote, urlencode
+from uuid import uuid1
+
+import requests
 from flask import (
     Response, jsonify, send_file, make_response,
     request as flask_request,
 )
+from itsdangerous import URLSafeTimedSerializer
 from werkzeug.http import HTTP_STATUS_CODES
 
-from api.utils import json_dumps
-from api.versions import get_rag_version
-from api.settings import RetCode
+from api.db.db_models import APIToken
 from api.settings import (
     REQUEST_MAX_WAIT_SEC, REQUEST_WAIT_SEC,
     stat_logger, CLIENT_AUTHENTICATION, HTTP_APP_KEY, SECRET_KEY
 )
-import requests
-import functools
-from api.utils import CustomJSONEncoder
-from uuid import uuid1
-from base64 import b64encode
-from hmac import HMAC
-from urllib.parse import quote, urlencode
-
+from api.settings import RetCode
+from api.utils import CustomJSONEncoder, get_uuid
+from api.utils import json_dumps
 
 requests.models.complexjson.dumps = functools.partial(
     json.dumps, cls=CustomJSONEncoder)
@@ -52,7 +53,7 @@ def request(**kwargs):
         k.replace(
             '_',
             '-').upper(): v for k,
-        v in kwargs.get(
+                                v in kwargs.get(
             'headers',
             {}).items()}
     prepped = requests.Request(**kwargs).prepare()
@@ -84,9 +85,6 @@ def request(**kwargs):
     return sess.send(prepped, stream=stream, timeout=timeout)
 
 
-rag_version = get_rag_version() or ''
-
-
 def get_exponential_backoff_interval(retries, full_jitter=False):
     """Calculate the exponential backoff wait time."""
     # Will be zero if factor equals 0
@@ -97,27 +95,6 @@ def get_exponential_backoff_interval(retries, full_jitter=False):
         countdown = random.randrange(countdown + 1)
     # Adjust according to maximum wait time and account for negative values.
     return max(0, countdown)
-
-
-def get_json_result(retcode=RetCode.SUCCESS, retmsg='success',
-                    data=None, job_id=None, meta=None):
-    import re
-    result_dict = {
-        "retcode": retcode,
-        "retmsg": retmsg,
-        # "retmsg": re.sub(r"rag", "seceum", retmsg, flags=re.IGNORECASE),
-        "data": data,
-        "jobId": job_id,
-        "meta": meta,
-    }
-
-    response = {}
-    for key, value in result_dict.items():
-        if value is None and key != "retcode":
-            continue
-        else:
-            response[key] = value
-    return jsonify(response)
 
 
 def get_data_error_result(retcode=RetCode.DATA_ERROR,
@@ -149,8 +126,9 @@ def server_error_response(e):
     if len(e.args) > 1:
         return get_json_result(
             retcode=RetCode.EXCEPTION_ERROR, retmsg=repr(e.args[0]), data=e.args[1])
-    if repr(e).find("index_not_found_exception") >=0:
-        return get_json_result(retcode=RetCode.EXCEPTION_ERROR, retmsg="No chunk found, please upload file and parse it.")
+    if repr(e).find("index_not_found_exception") >= 0:
+        return get_json_result(retcode=RetCode.EXCEPTION_ERROR,
+                               retmsg="No chunk found, please upload file and parse it.")
 
     return get_json_result(retcode=RetCode.EXCEPTION_ERROR, retmsg=repr(e))
 
@@ -195,7 +173,9 @@ def validate_request(*args, **kwargs):
                 return get_json_result(
                     retcode=RetCode.ARGUMENT_ERROR, retmsg=error_string)
             return func(*_args, **_kwargs)
+
         return decorated_function
+
     return wrapper
 
 
@@ -220,9 +200,30 @@ def get_json_result(retcode=RetCode.SUCCESS, retmsg='success', data=None):
     response = {"retcode": retcode, "retmsg": retmsg, "data": data}
     return jsonify(response)
 
+def apikey_required(func):
+    @wraps(func)
+    def decorated_function(*args, **kwargs):
+        token = flask_request.headers.get('Authorization').split()[1]
+        objs = APIToken.query(token=token)
+        if not objs:
+            return build_error_result(
+                error_msg='API-KEY is invalid!', retcode=RetCode.FORBIDDEN
+            )
+        kwargs['tenant_id'] = objs[0].tenant_id
+        return func(*args, **kwargs)
 
-def cors_reponse(retcode=RetCode.SUCCESS,
-                 retmsg='success', data=None, auth=None):
+    return decorated_function
+
+
+def build_error_result(retcode=RetCode.FORBIDDEN, error_msg='success'):
+    response = {"error_code": retcode, "error_msg": error_msg}
+    response = jsonify(response)
+    response.status_code = retcode
+    return response
+
+
+def construct_response(retcode=RetCode.SUCCESS,
+                       retmsg='success', data=None, auth=None):
     result_dict = {"retcode": retcode, "retmsg": retmsg, "data": data}
     response_dict = {}
     for key, value in result_dict.items():
@@ -239,3 +240,120 @@ def cors_reponse(retcode=RetCode.SUCCESS,
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Expose-Headers"] = "Authorization"
     return response
+
+
+def construct_result(code=RetCode.DATA_ERROR, message='data is missing'):
+    import re
+    result_dict = {"code": code, "message": re.sub(r"rag", "seceum", message, flags=re.IGNORECASE)}
+    response = {}
+    for key, value in result_dict.items():
+        if value is None and key != "code":
+            continue
+        else:
+            response[key] = value
+    return jsonify(response)
+
+
+def construct_json_result(code=RetCode.SUCCESS, message='success', data=None):
+    if data is None:
+        return jsonify({"code": code, "message": message})
+    else:
+        return jsonify({"code": code, "message": message, "data": data})
+
+
+def construct_error_response(e):
+    stat_logger.exception(e)
+    try:
+        if e.code == 401:
+            return construct_json_result(code=RetCode.UNAUTHORIZED, message=repr(e))
+    except BaseException:
+        pass
+    if len(e.args) > 1:
+        return construct_json_result(code=RetCode.EXCEPTION_ERROR, message=repr(e.args[0]), data=e.args[1])
+    if repr(e).find("index_not_found_exception") >= 0:
+        return construct_json_result(code=RetCode.EXCEPTION_ERROR,
+                                     message="No chunk found, please upload file and parse it.")
+
+    return construct_json_result(code=RetCode.EXCEPTION_ERROR, message=repr(e))
+
+
+def token_required(func):
+    @wraps(func)
+    def decorated_function(*args, **kwargs):
+        token = flask_request.headers.get('Authorization').split()[1]
+        objs = APIToken.query(token=token)
+        if not objs:
+            return get_json_result(
+                data=False, retmsg='Token is not valid!', retcode=RetCode.AUTHENTICATION_ERROR
+            )
+        kwargs['tenant_id'] = objs[0].tenant_id
+        return func(*args, **kwargs)
+
+    return decorated_function
+
+
+def get_result(retcode=RetCode.SUCCESS, retmsg='error', data=None):
+    if retcode == 0:
+        if data is not None:
+            response = {"code": retcode, "data": data}
+        else:
+            response = {"code": retcode}
+    else:
+        response = {"code": retcode, "message": retmsg}
+    return jsonify(response)
+
+
+def get_error_data_result(retmsg='Sorry! Data missing!', retcode=RetCode.DATA_ERROR,
+                          ):
+    import re
+    result_dict = {
+        "code": retcode,
+        "message": re.sub(
+            r"rag",
+            "seceum",
+            retmsg,
+            flags=re.IGNORECASE)}
+    response = {}
+    for key, value in result_dict.items():
+        if value is None and key != "code":
+            continue
+        else:
+            response[key] = value
+    return jsonify(response)
+
+
+def generate_confirmation_token(tenent_id):
+    serializer = URLSafeTimedSerializer(tenent_id)
+    return "ragflow-" + serializer.dumps(get_uuid(), salt=tenent_id)[2:34]
+
+
+def valid(permission,valid_permission,language,valid_language,chunk_method,valid_chunk_method):
+    if valid_parameter(permission,valid_permission):
+        return valid_parameter(permission,valid_permission)
+    if valid_parameter(language,valid_language):
+        return valid_parameter(language,valid_language)
+    if valid_parameter(chunk_method,valid_chunk_method):
+        return valid_parameter(chunk_method,valid_chunk_method)
+
+def valid_parameter(parameter,valid_values):
+    if parameter and parameter not in valid_values:
+       return get_error_data_result(f"`{parameter}` is not in {valid_values}")
+
+def get_parser_config(chunk_method,parser_config):
+    if parser_config:
+        return parser_config
+    if not chunk_method:
+        chunk_method = "naive"
+    key_mapping={"naive":{"chunk_token_num": 128, "delimiter": "\\n!?;。；！？", "html4excel": False,"layout_recognize": True, "raptor": {"user_raptor": False}},
+                 "qa":{"raptor":{"use_raptor":False}},
+                 "resume":None,
+                 "manual":{"raptor":{"use_raptor":False}},
+                 "table":None,
+                 "paper":{"raptor":{"use_raptor":False}},
+                 "book":{"raptor":{"use_raptor":False}},
+                 "laws":{"raptor":{"use_raptor":False}},
+                 "presentation":{"raptor":{"use_raptor":False}},
+                 "one":None,
+                 "knowledge_graph":{"chunk_token_num":8192,"delimiter":"\\n!?;。；！？","entity_types":["organization","person","location","event","time"]}}
+    parser_config=key_mapping[chunk_method]
+    return parser_config

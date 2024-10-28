@@ -13,16 +13,21 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import re
+import os
 from flask_login import current_user
 from peewee import fn
 
-from api.db import FileType, KNOWLEDGEBASE_FOLDER_NAME, FileSource
+from api.db import FileType, KNOWLEDGEBASE_FOLDER_NAME, FileSource, ParserType
 from api.db.db_models import DB, File2Document, Knowledgebase
 from api.db.db_models import File, Document
+from api.db.services import duplicate_name
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.utils import get_uuid
+from api.utils.file_utils import filename_type, thumbnail_img
+from rag.utils.storage_factory import STORAGE_IMPL
 
 
 class FileService(CommonService):
@@ -57,6 +62,12 @@ class FileService(CommonService):
             if file["type"] == FileType.FOLDER.value:
                 file["size"] = cls.get_folder_size(file["id"])
                 file['kbs_info'] = []
+                children = list(cls.model.select().where(
+                    (cls.model.tenant_id == tenant_id),
+                    (cls.model.parent_id == file["id"]),
+                    ~(cls.model.id == file["id"]),
+                ).dicts())
+                file["has_child_folder"] = any(value["type"] == FileType.FOLDER.value for value in children)                       
                 continue
             kbs_info = cls.get_kb_id_by_file_id(file['id'])
             file['kbs_info'] = kbs_info
@@ -164,12 +175,11 @@ class FileService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_kb_folder(cls, tenant_id):
-        for root in cls.model.select().where(cls.model.tenant_id == tenant_id and
-                                             cls.model.parent_id == cls.model.id):
-            for folder in cls.model.select().where(cls.model.tenant_id == tenant_id and
-                                     cls.model.parent_id == root.id and
-                                     cls.model.name == KNOWLEDGEBASE_FOLDER_NAME
-                                     ):
+        for root in cls.model.select().where(
+                (cls.model.tenant_id == tenant_id), (cls.model.parent_id == cls.model.id)):
+            for folder in cls.model.select().where(
+                    (cls.model.tenant_id == tenant_id), (cls.model.parent_id == root.id),
+                    (cls.model.name == KNOWLEDGEBASE_FOLDER_NAME)):
                 return folder.to_dict()
         assert False, "Can't find the KB folder. Database init error."
 
@@ -305,3 +315,83 @@ class FileService(CommonService):
         }
         cls.save(**file)
         File2DocumentService.save(**{"id": get_uuid(), "file_id": file["id"], "document_id": doc["id"]})
+    
+    @classmethod
+    @DB.connection_context()
+    def move_file(cls, file_ids, folder_id):
+        try:
+            cls.filter_update((cls.model.id << file_ids, ), { 'parent_id': folder_id })
+        except Exception as e:
+            print(e)
+            raise RuntimeError("Database error (File move)!")
+
+    @classmethod
+    @DB.connection_context()
+    def upload_document(self, kb, file_objs, user_id):
+        root_folder = self.get_root_folder(user_id)
+        pf_id = root_folder["id"]
+        self.init_knowledgebase_docs(pf_id, user_id)
+        kb_root_folder = self.get_kb_folder(user_id)
+        kb_folder = self.new_a_file_from_kb(kb.tenant_id, kb.name, kb_root_folder["id"])
+
+        err, files = [], []
+        for file in file_objs:
+            try:
+                MAX_FILE_NUM_PER_USER = int(os.environ.get('MAX_FILE_NUM_PER_USER', 0))
+                if MAX_FILE_NUM_PER_USER > 0 and DocumentService.get_doc_count(kb.tenant_id) >= MAX_FILE_NUM_PER_USER:
+                    raise RuntimeError("Exceed the maximum file number of a free user!")
+
+                filename = duplicate_name(
+                    DocumentService.query,
+                    name=file.filename,
+                    kb_id=kb.id)
+                filetype = filename_type(filename)
+                if filetype == FileType.OTHER.value:
+                    raise RuntimeError("This type of file has not been supported yet!")
+
+                location = filename
+                while STORAGE_IMPL.obj_exist(kb.id, location):
+                    location += "_"
+                blob = file.read()
+                STORAGE_IMPL.put(kb.id, location, blob)
+
+                doc_id = get_uuid()
+
+                img = thumbnail_img(filename, blob)
+                thumbnail_location = ''
+                if img is not None:
+                    thumbnail_location = f'thumbnail_{doc_id}.png'
+                    STORAGE_IMPL.put(kb.id, thumbnail_location, img)
+
+                doc = {
+                    "id": doc_id,
+                    "kb_id": kb.id,
+                    "parser_id": self.get_parser(filetype, filename, kb.parser_id),
+                    "parser_config": kb.parser_config,
+                    "created_by": user_id,
+                    "type": filetype,
+                    "name": filename,
+                    "location": location,
+                    "size": len(blob),
+                    "thumbnail": thumbnail_location
+                }
+                DocumentService.insert(doc)
+
+                FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
+                files.append((doc, blob))
+            except Exception as e:
+                err.append(file.filename + ": " + str(e))
+
+        return err, files
+
+    @staticmethod
+    def get_parser(doc_type, filename, default):
+        if doc_type == FileType.VISUAL:
+            return ParserType.PICTURE.value
+        if doc_type == FileType.AURAL:
+            return ParserType.AUDIO.value
+        if re.search(r"\.(ppt|pptx|pages)$", filename):
+            return ParserType.PRESENTATION.value
+        if re.search(r"\.(eml)$", filename):
+            return ParserType.EMAIL.value
+        return default

@@ -10,16 +10,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
-import copy
 from tika import parser
 import re
 from io import BytesIO
 
-from rag.nlp import bullets_category, is_english, tokenize, remove_contents_table, \
-    hierarchical_merge, make_colon_as_title, naive_merge, random_choices, tokenize_table, add_positions, \
-    tokenize_chunks, find_codec
+from deepdoc.parser.utils import get_text
+from rag.nlp import bullets_category, is_english,remove_contents_table, \
+    hierarchical_merge, make_colon_as_title, naive_merge, random_choices, tokenize_table, \
+    tokenize_chunks
 from rag.nlp import rag_tokenizer
-from deepdoc.parser import PdfParser, DocxParser, PlainParser
+from deepdoc.parser import PdfParser, DocxParser, PlainParser, HtmlParser
 
 
 class Pdf(PdfParser):
@@ -88,18 +88,16 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
 
     elif re.search(r"\.txt$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
-        txt = ""
-        if binary:
-            encoding = find_codec(binary)
-            txt = binary.decode(encoding, errors="ignore")
-        else:
-            with open(filename, "r") as f:
-                while True:
-                    l = f.readline()
-                    if not l:
-                        break
-                    txt += l
+        txt = get_text(filename, binary)
         sections = txt.split("\n")
+        sections = [(l, "") for l in sections if l]
+        remove_contents_table(sections, eng=is_english(
+            random_choices([t for t, _ in sections], k=200)))
+        callback(0.8, "Finish parsing.")
+
+    elif re.search(r"\.(htm|html)$", filename, re.IGNORECASE):
+        callback(0.1, "Start to parse.")
+        sections = HtmlParser()(filename, binary)
         sections = [(l, "") for l in sections if l]
         remove_contents_table(sections, eng=is_english(
             random_choices([t for t, _ in sections], k=200)))
@@ -127,7 +125,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
                   for ck in hierarchical_merge(bull, sections, 5)]
     else:
         sections = [s.split("@") for s, _ in sections]
-        sections = [(pr[0], "@" + pr[1]) for pr in sections if len(pr) == 2]
+        sections = [(pr[0], "@" + pr[1]) if len(pr) == 2 else (pr[0], '') for pr in sections ]
         chunks = naive_merge(
             sections, kwargs.get(
                 "chunk_token_num", 256), kwargs.get(

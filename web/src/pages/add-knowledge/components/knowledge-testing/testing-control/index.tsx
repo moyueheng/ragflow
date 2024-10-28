@@ -1,9 +1,10 @@
+import Rerank from '@/components/rerank';
 import SimilaritySlider from '@/components/similarity-slider';
+import { useTranslate } from '@/hooks/common-hooks';
 import { Button, Card, Divider, Flex, Form, Input } from 'antd';
 import { FormInstance } from 'antd/lib';
 
-import { useTranslate } from '@/hooks/commonHooks';
-import { useOneNamespaceEffectsLoading } from '@/hooks/storeHooks';
+import { useChunkIsTesting } from '@/hooks/knowledge-hooks';
 import styles from './index.less';
 
 type FieldType = {
@@ -19,9 +20,7 @@ interface IProps {
 
 const TestingControl = ({ form, handleTesting }: IProps) => {
   const question = Form.useWatch('question', { form, preserve: true });
-  const loading = useOneNamespaceEffectsLoading('testingModel', [
-    'testDocumentChunk',
-  ]);
+  const loading = useChunkIsTesting();
   const { t } = useTranslate('knowledgeDetails');
 
   const buttonDisabled =
@@ -37,6 +36,7 @@ const TestingControl = ({ form, handleTesting }: IProps) => {
       <section>
         <Form name="testing" layout="vertical" form={form}>
           <SimilaritySlider isTooltipShown></SimilaritySlider>
+          <Rerank></Rerank>
           <Card size="small" title={t('testText')}>
             <Form.Item<FieldType>
               name={'question'}

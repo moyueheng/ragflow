@@ -1,18 +1,30 @@
-# -*- coding: utf-8 -*-
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+
 import os
 import random
 
 import xgboost as xgb
 from io import BytesIO
-import torch
 import re
 import pdfplumber
 import logging
 from PIL import Image, ImageDraw
 import numpy as np
 from timeit import default_timer as timer
-from PyPDF2 import PdfReader as pdf2_read
+from pypdf import PdfReader as pdf2_read
 
+from api.settings import LIGHTEN
 from api.utils.file_utils import get_project_base_directory
 from deepdoc.vision import OCR, Recognizer, LayoutRecognizer, TableStructureRecognizer
 from rag.nlp import rag_tokenizer
@@ -32,8 +44,13 @@ class RAGFlowPdfParser:
         self.tbl_det = TableStructureRecognizer()
 
         self.updown_cnt_mdl = xgb.Booster()
-        if torch.cuda.is_available():
-            self.updown_cnt_mdl.set_param({"device": "cuda"})
+        if not LIGHTEN:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    self.updown_cnt_mdl.set_param({"device": "cuda"})
+            except Exception as e:
+                logging.error(str(e))
         try:
             model_dir = os.path.join(
                 get_project_base_directory(),
@@ -273,10 +290,10 @@ class RAGFlowPdfParser:
               "page_number": pagenum} for b, t in bxs if b[0][0] <= b[1][0] and b[0][1] <= b[-1][1]],
             self.mean_height[-1] / 3
         )
-
+        
         # merge chars in the same rect
-        for c in Recognizer.sort_X_firstly(
-                chars, self.mean_width[pagenum - 1] // 4):
+        for c in Recognizer.sort_Y_firstly(
+                chars, self.mean_height[pagenum - 1] // 4):
             ii = Recognizer.find_overlapped(c, bxs)
             if ii is None:
                 self.lefted_chars.append(c)
@@ -287,7 +304,7 @@ class RAGFlowPdfParser:
                 self.lefted_chars.append(c)
                 continue
             if c["text"] == " " and bxs[ii]["text"]:
-                if re.match(r"[0-9a-zA-Z,.?;:!%%]", bxs[ii]["text"][-1]):
+                if re.match(r"[0-9a-zA-Zа-яА-Я,.?;:!%%]", bxs[ii]["text"][-1]):
                     bxs[ii]["text"] += " "
             else:
                 bxs[ii]["text"] += c["text"]
@@ -392,11 +409,11 @@ class RAGFlowPdfParser:
                 b["text"].strip()[-1] in ",;:'\"，、‘“；：-",
                 len(b["text"].strip()) > 1 and b["text"].strip(
                 )[-2] in ",;:'\"，‘“、；：",
-                b["text"].strip()[0] in "。；？！?”）),，、：",
+                b_["text"].strip() and b_["text"].strip()[0] in "。；？！?”）),，、：",
             ]
             # features for not concating
             feats = [
-                b.get("layoutno", 0) != b.get("layoutno", 0),
+                b.get("layoutno", 0) != b_.get("layoutno", 0),
                 b["text"].strip()[-1] in "。？！?",
                 self.is_english and b["text"].strip()[-1] in ".!?",
                 b["page_number"] == b_["page_number"] and b_["top"] -
@@ -474,7 +491,7 @@ class RAGFlowPdfParser:
                         i += 1
                         continue
 
-                    if not down["text"].strip():
+                    if not down["text"].strip() or not up["text"].strip():
                         i += 1
                         continue
 
@@ -940,7 +957,9 @@ class RAGFlowPdfParser:
                 fnm, str) else pdfplumber.open(BytesIO(fnm))
             self.page_images = [p.to_image(resolution=72 * zoomin).annotated for i, p in
                                 enumerate(self.pdf.pages[page_from:page_to])]
-            self.page_chars = [[c for c in page.chars if self._has_color(c)] for page in
+            self.page_images_x2 = [p.to_image(resolution=72 * zoomin * 2).annotated for i, p in
+                                enumerate(self.pdf.pages[page_from:page_to])]
+            self.page_chars = [[{**c, 'top': c['top'], 'bottom': c['bottom']} for c in page.dedupe_chars().chars if self._has_color(c)] for page in
                                self.pdf.pages[page_from:page_to]]
             self.total_page = len(self.pdf.pages)
         except Exception as e:
@@ -973,10 +992,9 @@ class RAGFlowPdfParser:
             self.is_english = True
         else:
             self.is_english = False
-        self.is_english = False
 
         st = timer()
-        for i, img in enumerate(self.page_images):
+        for i, img in enumerate(self.page_images_x2):
             chars = self.page_chars[i] if not self.is_english else []
             self.mean_height.append(
                 np.median(sorted([c["height"] for c in chars])) if chars else 0
@@ -984,7 +1002,7 @@ class RAGFlowPdfParser:
             self.mean_width.append(
                 np.median(sorted([c["width"] for c in chars])) if chars else 8
             )
-            self.page_cum_height.append(img.size[1] / zoomin)
+            self.page_cum_height.append(img.size[1] / zoomin/2)
             j = 0
             while j + 1 < len(chars):
                 if chars[j]["text"] and chars[j + 1]["text"] \
@@ -994,7 +1012,7 @@ class RAGFlowPdfParser:
                     chars[j]["text"] += " "
                 j += 1
 
-            self.__ocr(i + 1, img, chars, zoomin)
+            self.__ocr(i + 1, img, chars, zoomin*2)
             if callback and i % 6 == 5:
                 callback(prog=(i + 1) * 0.6 / len(self.page_images), msg="")
         # print("OCR:", timer()-st)
@@ -1009,6 +1027,8 @@ class RAGFlowPdfParser:
 
         self.page_cum_height = np.cumsum(self.page_cum_height)
         assert len(self.page_cum_height) == len(self.page_images) + 1
+        if len(self.boxes) == 0 and zoomin < 9: self.__images__(fnm, zoomin * 3, page_from,
+                                                                page_to, callback)
 
     def __call__(self, fnm, need_image=True, zoomin=3, return_html=False):
         self.__images__(fnm, zoomin)

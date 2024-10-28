@@ -1,14 +1,26 @@
-import { normFile } from '@/utils/fileUtil';
+import {
+  AutoKeywordsItem,
+  AutoQuestionsItem,
+} from '@/components/auto-keywords-item';
+import { useShowAutoKeywords } from '@/components/chunk-method-modal/hooks';
+import Delimiter from '@/components/delimiter';
+import EntityTypesItem from '@/components/entity-types-item';
+import ExcelToHtml from '@/components/excel-to-html';
+import LayoutRecognize from '@/components/layout-recognize';
+import MaxTokenNumber from '@/components/max-token-number';
+import ParseConfiguration, {
+  showRaptorParseConfiguration,
+} from '@/components/parse-configuration';
+import { useTranslate } from '@/hooks/common-hooks';
+import { useHandleChunkMethodSelectChange } from '@/hooks/logic-hooks';
+import { normFile } from '@/utils/file-util';
 import { PlusOutlined } from '@ant-design/icons';
 import { Button, Form, Input, Radio, Select, Space, Upload } from 'antd';
+import { FormInstance } from 'antd/lib';
 import {
   useFetchKnowledgeConfigurationOnMount,
   useSubmitKnowledgeConfiguration,
 } from './hooks';
-
-import MaxTokenNumber from '@/components/max-token-number';
-import { useTranslate } from '@/hooks/commonHooks';
-import { FormInstance } from 'antd/lib';
 import styles from './index.less';
 
 const { Option } = Select;
@@ -19,6 +31,8 @@ const ConfigurationForm = ({ form }: { form: FormInstance }) => {
   const { parserList, embeddingModelOptions, disabled } =
     useFetchKnowledgeConfigurationOnMount(form);
   const { t } = useTranslate('knowledgeConfiguration');
+  const handleChunkMethodSelectChange = useHandleChunkMethodSelectChange(form);
+  const showAutoKeywords = useShowAutoKeywords();
 
   return (
     <Form form={form} name="validateOnly" layout="vertical" autoComplete="off">
@@ -86,7 +100,11 @@ const ConfigurationForm = ({ form }: { form: FormInstance }) => {
         tooltip={t('chunkMethodTip')}
         rules={[{ required: true }]}
       >
-        <Select placeholder={t('chunkMethodPlaceholder')} disabled={disabled}>
+        <Select
+          placeholder={t('chunkMethodPlaceholder')}
+          disabled={disabled}
+          onChange={handleChunkMethodSelectChange}
+        >
           {parserList.map((x) => (
             <Option value={x.value} key={x.value}>
               {x.label}
@@ -94,16 +112,43 @@ const ConfigurationForm = ({ form }: { form: FormInstance }) => {
           ))}
         </Select>
       </Form.Item>
+
       <Form.Item noStyle dependencies={['parser_id']}>
         {({ getFieldValue }) => {
           const parserId = getFieldValue('parser_id');
 
-          if (parserId === 'naive') {
-            return <MaxTokenNumber></MaxTokenNumber>;
-          }
-          return null;
+          return (
+            <>
+              {parserId === 'knowledge_graph' && (
+                <>
+                  <EntityTypesItem></EntityTypesItem>
+                  <MaxTokenNumber max={8192 * 2}></MaxTokenNumber>
+                  <Delimiter></Delimiter>
+                </>
+              )}
+              {showAutoKeywords(parserId) && (
+                <>
+                  <AutoKeywordsItem></AutoKeywordsItem>
+                  <AutoQuestionsItem></AutoQuestionsItem>
+                </>
+              )}
+              {parserId === 'naive' && (
+                <>
+                  <MaxTokenNumber></MaxTokenNumber>
+                  <Delimiter></Delimiter>
+                  <LayoutRecognize></LayoutRecognize>
+                  <ExcelToHtml></ExcelToHtml>
+                </>
+              )}
+
+              {showRaptorParseConfiguration(parserId) && (
+                <ParseConfiguration></ParseConfiguration>
+              )}
+            </>
+          );
         }}
       </Form.Item>
+
       <Form.Item>
         <div className={styles.buttonWrapper}>
           <Space>

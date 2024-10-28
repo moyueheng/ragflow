@@ -1,21 +1,24 @@
 import Image from '@/components/image';
 import SvgIcon from '@/components/svg-icon';
-import { useSelectFileThumbnails } from '@/hooks/knowledgeHook';
 import { IReference } from '@/interfaces/database/chat';
 import { IChunk } from '@/interfaces/database/knowledge';
-import { getExtension } from '@/utils/documentUtils';
+import { getExtension } from '@/utils/document-util';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { Button, Flex, Popover, Space } from 'antd';
-import { useCallback } from 'react';
+import DOMPurify from 'dompurify';
+import { useCallback, useEffect, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import reactStringReplace from 'react-string-replace';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import remarkGfm from 'remark-gfm';
 import { visitParents } from 'unist-util-visit-parents';
 
+import { useFetchDocumentThumbnailsByIds } from '@/hooks/document-hooks';
+import { useTranslation } from 'react-i18next';
 import styles from './index.less';
 
 const reg = /(#{2}\d+\${2})/g;
+const curReg = /(~{2}\d+\${2})/g;
 
 const getChunkIndex = (match: string) => Number(match.slice(2, -2));
 // TODO: The display of the table is inconsistent with the display previously placed in the MessageItem.
@@ -23,19 +26,34 @@ const MarkdownContent = ({
   reference,
   clickDocumentButton,
   content,
+  loading,
 }: {
   content: string;
+  loading: boolean;
   reference: IReference;
-  clickDocumentButton: (documentId: string, chunk: IChunk) => void;
+  clickDocumentButton?: (documentId: string, chunk: IChunk) => void;
 }) => {
-  const fileThumbnails = useSelectFileThumbnails();
+  const { t } = useTranslation();
+  const { setDocumentIds, data: fileThumbnails } =
+    useFetchDocumentThumbnailsByIds();
+  const contentWithCursor = useMemo(() => {
+    let text = content;
+    if (text === '') {
+      text = t('chat.searching');
+    }
+    return loading ? text?.concat('~~2$$') : text;
+  }, [content, loading, t]);
+
+  useEffect(() => {
+    setDocumentIds(reference?.doc_aggs?.map((x) => x.doc_id) ?? []);
+  }, [reference, setDocumentIds]);
 
   const handleDocumentButtonClick = useCallback(
     (documentId: string, chunk: IChunk, isPdf: boolean) => () => {
       if (!isPdf) {
         return;
       }
-      clickDocumentButton(documentId, chunk);
+      clickDocumentButton?.(documentId, chunk);
     },
     [clickDocumentButton],
   );
@@ -61,7 +79,7 @@ const MarkdownContent = ({
     (chunkIndex: number) => {
       const chunks = reference?.chunks ?? [];
       const chunkItem = chunks[chunkIndex];
-      const document = reference?.doc_aggs.find(
+      const document = reference?.doc_aggs?.find(
         (x) => x?.doc_id === chunkItem?.doc_id,
       );
       const documentId = document?.doc_id;
@@ -93,14 +111,18 @@ const MarkdownContent = ({
           <Space direction={'vertical'}>
             <div
               dangerouslySetInnerHTML={{
-                __html: chunkItem?.content_with_weight,
+                __html: DOMPurify.sanitize(chunkItem?.content_with_weight),
               }}
               className={styles.chunkContentText}
             ></div>
             {documentId && (
               <Flex gap={'small'}>
                 {fileThumbnail ? (
-                  <img src={fileThumbnail} alt="" />
+                  <img
+                    src={fileThumbnail}
+                    alt=""
+                    className={styles.fileThumbnail}
+                  />
                 ) : (
                   <SvgIcon
                     name={`file-icon/${fileExtension}`}
@@ -129,14 +151,20 @@ const MarkdownContent = ({
 
   const renderReference = useCallback(
     (text: string) => {
-      return reactStringReplace(text, reg, (match, i) => {
+      let replacedText = reactStringReplace(text, reg, (match, i) => {
         const chunkIndex = getChunkIndex(match);
         return (
-          <Popover content={getPopoverContent(chunkIndex)}>
-            <InfoCircleOutlined key={i} className={styles.referenceIcon} />
+          <Popover content={getPopoverContent(chunkIndex)} key={i}>
+            <InfoCircleOutlined className={styles.referenceIcon} />
           </Popover>
         );
       });
+
+      replacedText = reactStringReplace(replacedText, curReg, (match, i) => (
+        <span className={styles.cursor} key={i}></span>
+      ));
+
+      return replacedText;
     },
     [getPopoverContent],
   );
@@ -165,7 +193,7 @@ const MarkdownContent = ({
         } as any
       }
     >
-      {content}
+      {contentWithCursor}
     </Markdown>
   );
 };

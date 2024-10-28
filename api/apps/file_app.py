@@ -34,7 +34,7 @@ from api.utils.api_utils import get_json_result
 from api.utils.file_utils import filename_type
 from rag.nlp import search
 from rag.utils.es_conn import ELASTICSEARCH
-from rag.utils.minio_conn import MINIO
+from rag.utils.storage_factory import STORAGE_IMPL
 
 
 @manager.route('/upload', methods=['POST'])
@@ -98,7 +98,7 @@ def upload():
             # file type
             filetype = filename_type(file_obj_names[file_len - 1])
             location = file_obj_names[file_len - 1]
-            while MINIO.obj_exist(last_folder.id, location):
+            while STORAGE_IMPL.obj_exist(last_folder.id, location):
                 location += "_"
             blob = file_obj.read()
             filename = duplicate_name(
@@ -116,7 +116,7 @@ def upload():
                 "size": len(blob),
             }
             file = FileService.insert(file)
-            MINIO.put(last_folder.id, location, blob)
+            STORAGE_IMPL.put(last_folder.id, location, blob)
             file_res.append(file.to_json())
         return get_json_result(data=file_res)
     except Exception as e:
@@ -260,7 +260,7 @@ def rm():
                     e, file = FileService.get_by_id(inner_file_id)
                     if not e:
                         return get_data_error_result(retmsg="File not found!")
-                    MINIO.rm(file.parent_id, file.location)
+                    STORAGE_IMPL.rm(file.parent_id, file.location)
                 FileService.delete_folder_by_pf_id(current_user.id, file_id)
             else:
                 if not FileService.delete(file):
@@ -277,11 +277,7 @@ def rm():
                 tenant_id = DocumentService.get_tenant_id(doc_id)
                 if not tenant_id:
                     return get_data_error_result(retmsg="Tenant not found!")
-                ELASTICSEARCH.deleteByQuery(
-                    Q("match", doc_id=doc.id), idxnm=search.index_name(tenant_id))
-                DocumentService.increment_chunk_num(
-                    doc.id, doc.kb_id, doc.token_num * -1, doc.chunk_num * -1, 0)
-                if not DocumentService.delete(doc):
+                if not DocumentService.remove_document(doc, tenant_id):
                     return get_data_error_result(
                         retmsg="Database error (Document removal)!")
             File2DocumentService.delete_by_file_id(file_id)
@@ -300,7 +296,8 @@ def rename():
         e, file = FileService.get_by_id(req["file_id"])
         if not e:
             return get_data_error_result(retmsg="File not found!")
-        if pathlib.Path(req["name"].lower()).suffix != pathlib.Path(
+        if file.type != FileType.FOLDER.value \
+            and pathlib.Path(req["name"].lower()).suffix != pathlib.Path(
                 file.name.lower()).suffix:
             return get_json_result(
                 data=False,
@@ -335,8 +332,8 @@ def get(file_id):
         e, file = FileService.get_by_id(file_id)
         if not e:
             return get_data_error_result(retmsg="Document not found!")
-
-        response = flask.make_response(MINIO.get(file.parent_id, file.location))
+        b, n = File2DocumentService.get_storage_address(file_id=file_id)
+        response = flask.make_response(STORAGE_IMPL.get(b, n))
         ext = re.search(r"\.([^.]+)$", file.name)
         if ext:
             if file.type == FileType.VISUAL.value:
@@ -347,5 +344,28 @@ def get(file_id):
                     'application/%s' %
                     ext.group(1))
         return response
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route('/mv', methods=['POST'])
+@login_required
+@validate_request("src_file_ids", "dest_file_id")
+def move():
+    req = request.json
+    try:
+        file_ids = req["src_file_ids"]
+        parent_id = req["dest_file_id"]
+        for file_id in file_ids:
+            e, file = FileService.get_by_id(file_id)
+            if not e:
+                return get_data_error_result(retmsg="File or Folder not found!")
+            if not file.tenant_id:
+                return get_data_error_result(retmsg="Tenant not found!")
+        fe, _ = FileService.get_by_id(parent_id)
+        if not fe:
+            return get_data_error_result(retmsg="Parent Folder not found!")
+        FileService.move_file(file_ids, parent_id)
+        return get_json_result(data=True)
     except Exception as e:
         return server_error_response(e)

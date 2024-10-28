@@ -1,8 +1,8 @@
-import { useShowDeleteConfirm, useTranslate } from '@/hooks/commonHooks';
-import { useRemoveDocument } from '@/hooks/documentHooks';
-import { IKnowledgeFile } from '@/interfaces/database/knowledge';
+import { useShowDeleteConfirm, useTranslate } from '@/hooks/common-hooks';
+import { useRemoveNextDocument } from '@/hooks/document-hooks';
+import { IDocumentInfo } from '@/interfaces/database/document';
 import { api_host } from '@/utils/api';
-import { downloadFile } from '@/utils/fileUtil';
+import { downloadFile } from '@/utils/file-util';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -15,8 +15,8 @@ import { isParserRunning } from '../utils';
 import styles from './index.less';
 
 interface IProps {
-  record: IKnowledgeFile;
-  setCurrentRecord: (record: IKnowledgeFile) => void;
+  record: IDocumentInfo;
+  setCurrentRecord: (record: IDocumentInfo) => void;
   showRenameModal: () => void;
   showChangeParserModal: () => void;
 }
@@ -30,7 +30,7 @@ const ParsingActionCell = ({
   const documentId = record.id;
   const isRunning = isParserRunning(record.run);
   const { t } = useTranslate('knowledgeDetails');
-  const removeDocument = useRemoveDocument();
+  const { removeDocument } = useRemoveNextDocument();
   const showDeleteConfirm = useShowDeleteConfirm();
 
   const onRmDocument = () => {

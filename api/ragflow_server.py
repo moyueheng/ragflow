@@ -38,7 +38,7 @@ from api.versions import get_versions
 
 def update_progress():
     while True:
-        time.sleep(1)
+        time.sleep(3)
         try:
             DocumentService.update_progress()
         except Exception as e:
@@ -46,13 +46,12 @@ def update_progress():
 
 
 if __name__ == '__main__':
-    print("""
-    ____                 ______ __               
-   / __ \ ____ _ ____ _ / ____// /____  _      __
-  / /_/ // __ `// __ `// /_   / // __ \| | /| / /
- / _, _// /_/ // /_/ // __/  / // /_/ /| |/ |/ / 
-/_/ |_| \__,_/ \__, //_/    /_/ \____/ |__/|__/  
-              /____/                             
+    print(r"""
+        ____   ___    ______ ______ __               
+       / __ \ /   |  / ____// ____// /____  _      __
+      / /_/ // /| | / / __ / /_   / // __ \| | /| / /
+     / _, _// ___ |/ /_/ // __/  / // /_/ /| |/ |/ / 
+    /_/ |_|/_/  |_|\____//_/    /_/ \____/ |__/|__/                             
 
     """, flush=True)
     stat_logger.info(

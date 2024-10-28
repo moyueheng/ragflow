@@ -13,22 +13,21 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
-from elasticsearch_dsl import Q
 from flask import request
 from flask_login import login_required, current_user
 
 from api.db.services import duplicate_name
 from api.db.services.document_service import DocumentService
+from api.db.services.file2document_service import File2DocumentService
+from api.db.services.file_service import FileService
 from api.db.services.user_service import TenantService, UserTenantService
 from api.utils.api_utils import server_error_response, get_data_error_result, validate_request
-from api.utils import get_uuid, get_format_time
-from api.db import StatusEnum, UserTenantRole
+from api.utils import get_uuid
+from api.db import StatusEnum, FileSource
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.db.db_models import Knowledgebase
-from api.settings import stat_logger, RetCode
+from api.db.db_models import File
+from api.settings import RetCode
 from api.utils.api_utils import get_json_result
-from rag.nlp import search
-from rag.utils.es_conn import ELASTICSEARCH
 
 
 @manager.route('/create', methods=['post'])
@@ -63,6 +62,12 @@ def create():
 def update():
     req = request.json
     req["name"] = req["name"].strip()
+    if not KnowledgebaseService.accessible4deletion(req["kb_id"], current_user.id):
+        return get_json_result(
+            data=False,
+            retmsg='No authorization.',
+            retcode=RetCode.AUTHENTICATION_ERROR
+        )
     try:
         if not KnowledgebaseService.query(
                 created_by=current_user.id, id=req["kb_id"]):
@@ -98,6 +103,15 @@ def update():
 def detail():
     kb_id = request.args["kb_id"]
     try:
+        tenants = UserTenantService.query(user_id=current_user.id)
+        for tenant in tenants:
+            if KnowledgebaseService.query(
+                    tenant_id=tenant.tenant_id, id=kb_id):
+                break
+        else:
+            return get_json_result(
+                data=False, retmsg=f'Only owner of knowledgebase authorized for this operation.',
+                retcode=RetCode.OPERATING_ERROR)
         kb = KnowledgebaseService.get_detail(kb_id)
         if not kb:
             return get_data_error_result(
@@ -128,6 +142,12 @@ def list_kbs():
 @validate_request("kb_id")
 def rm():
     req = request.json
+    if not KnowledgebaseService.accessible4deletion(req["kb_id"], current_user.id):
+        return get_json_result(
+            data=False,
+            retmsg='No authorization.',
+            retcode=RetCode.AUTHENTICATION_ERROR
+        )
     try:
         kbs = KnowledgebaseService.query(
                 created_by=current_user.id, id=req["kb_id"])
@@ -136,17 +156,14 @@ def rm():
                 data=False, retmsg=f'Only owner of knowledgebase authorized for this operation.', retcode=RetCode.OPERATING_ERROR)
 
         for doc in DocumentService.query(kb_id=req["kb_id"]):
-            ELASTICSEARCH.deleteByQuery(
-                Q("match", doc_id=doc.id), idxnm=search.index_name(kbs[0].tenant_id))
-
-            DocumentService.increment_chunk_num(
-                doc.id, doc.kb_id, doc.token_num * -1, doc.chunk_num * -1, 0)
-            if not DocumentService.delete(doc):
+            if not DocumentService.remove_document(doc, kbs[0].tenant_id):
                 return get_data_error_result(
                     retmsg="Database error (Document removal)!")
+            f2d = File2DocumentService.get_by_document_id(doc.id)
+            FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.id == f2d[0].file_id])
+            File2DocumentService.delete_by_document_id(doc.id)
 
-        if not KnowledgebaseService.update_by_id(
-                req["kb_id"], {"status": StatusEnum.INVALID.value}):
+        if not KnowledgebaseService.delete_by_id(req["kb_id"]):
             return get_data_error_result(
                 retmsg="Database error (Knowledgebase removal)!")
         return get_json_result(data=True)
